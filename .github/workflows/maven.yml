@@ -1,0 +1,118 @@
+# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-maven
+
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+name: Java CI with Maven
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+concurrency: 
+  group: release-${{github.repository}}
+  cancel-in-progress: true
+
+env:
+  MYAPI_USER: test
+  MYAPI_PW: abcdef
+  JFROG_CLI_BUILD_NAME: develop-${{ github.event.repository.name }}
+  JFROG_REPO_NAME : ${{ github.event.repository.name }}-mvn
+  JF_XRAY_WATCH: ${{ github.event.repository.name }}-watch
+  JF_REPO_URL: https://example.jfrog.io/artifactory/${{ github.event.repository.name }}-mvn
+  # JFROG_CLI_LOG_LEVEL: DEBUG
+  # JFROG_CLI_BUILD_NUMBER:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    
+      - uses: actions/checkout@v2     
+      
+      - uses: actions/cache@v1
+        with:
+            path: ~/.m2/repository
+            key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+            restore-keys: |
+                ${{ runner.os }}-maven-
+                
+      - name: Set up JDK 8
+        uses: actions/setup-java@v2
+        with:
+          java-version: '8'
+          distribution: 'adopt'
+          overwrite-settings: false
+      - name: Setup JFrog CLI
+        # Install CLI 
+        uses: jfrog/setup-jfrog-cli@v3
+        env:
+      # JFrog platform url 
+         JF_URL: ${{ secrets.JFROG_URL }}
+      
+      # JFrog Platform access token 
+         JF_ACCESS_TOKEN: ${{ secrets.JFROG_ACCESS_TOKEN }}
+     
+
+
+      - name: maven-settings-xml-action
+        uses: whelk-io/maven-settings-xml-action@v20
+        with:
+            repositories: >
+              [
+                {
+                  "id": "example-exchange",
+                  "name": "External Repository that cannot be resolved via Artifactory",
+                  "url": "https://maven.myapi.example.com/api/v1/organizations/c2d163f1-4af6-43a0-8bee-34fc8a0a98bc/maven"
+                },              
+                {
+                  "id": "Artifactory",
+                  "name": "Team Maven Virtual Repository",
+                  "url": "${JF_REPO_URL}",
+                  "releases": {
+                    "enabled": "true"
+                  },
+                  "snapshots": {
+                    "enabled": "true"
+                  }
+                }         
+              ]
+            plugin_repositories: >
+              [
+                {
+                  "id": "Artifactory",
+                  "name": "Team Maven Virtual Repository",
+                  "url": "${JF_REPO_URL}",
+                  "releases": {
+                    "enabled": "true"
+                  },
+                  "snapshots": {
+                    "enabled": "true"
+                  }
+                }            
+              ]
+            servers: >
+              [                
+                {
+                  "id": "Artifactory",
+                  "username": "${{ secrets.JFROG_USER }}",
+                  "password": "${{ secrets.JFROG_ACCESS_TOKEN }}"
+                },
+                {
+                  "id": "example-exchange",
+                  "username": "${env.MYAPI_USER}",
+                  "password": "${env.MYAPI_PW}"
+                }
+              ]             
+                  - name: Build with Maven
+        env:
+         REPO_NAME : ${{ env.JFROG_REPO_NAME }}
+        run: 
+         jf mvnc --repo-resolve-releases '' --repo-resolve-snapshots '' --repo-deploy-releases $REPO_NAME --repo-deploy-snapshots $REPO_NAME
+         jf mvn clean install 
